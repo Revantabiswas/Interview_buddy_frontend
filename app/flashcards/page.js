@@ -36,8 +36,7 @@ const mockDecks = [
       { front: "What is a tree?", back: "A hierarchical data structure with a root value and subtrees of children with a parent node." },
       { front: "What is a graph?", back: "A non-linear data structure consisting of nodes and edges." },
       { front: "What is a hash table?", back: "A data structure that implements an associative array abstract data type, a structure that can map keys to values." },
-      { front: "What is a heap?", back: "A specialized tree-based data structure that satisfies the heap property." },\
-      { front: "What is a trie?\", back: \"A tree-like data structure whose nodes store the letters of  },
+      { front: "What is a heap?", back: "A specialized tree-based data structure that satisfies the heap property." },
       { front: "What is a trie?", back: "A tree-like data structure whose nodes store the letters of an alphabet. It's used for efficient retrieval of keys in a dataset of strings." },
       { front: "What is Big O notation?", back: "A mathematical notation that describes the limiting behavior of a function when the argument tends towards a particular value or infinity." },
       { front: "What is time complexity?", back: "A measure of the amount of time an algorithm takes to run as a function of the length of the input." },

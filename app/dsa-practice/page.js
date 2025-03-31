@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Search, ExternalLink, CheckCircle, Clock, BarChart, Code, AlertTriangle, CheckSquare, X, HelpCircle } from "lucide-react"
+import { Search, ExternalLink, CheckCircle, Clock, BarChart, Code, AlertTriangle, CheckSquare, X, HelpCircle, Play, PauseCircle, Share2, MessageSquare } from "lucide-react"
 
 // Mock data for DSA questions by category
 const dsaQuestionsByCategory = {
@@ -321,6 +321,22 @@ export default function DSAPractice() {
   const [debugResult, setDebugResult] = useState(null)
   const [isDebugging, setIsDebugging] = useState(false)
   const [showFeatureOverview, setShowFeatureOverview] = useState(false)
+  
+  // New mock interview state variables
+  const [interviewInProgress, setInterviewInProgress] = useState(false)
+  const [interviewSettings, setInterviewSettings] = useState({
+    company: "Google",
+    difficulty: "Medium",
+    topic: "Arrays & Strings"
+  })
+  const [interviewQuestion, setInterviewQuestion] = useState(null)
+  const [interviewSolution, setInterviewSolution] = useState("")
+  const [interviewStartTime, setInterviewStartTime] = useState(null)
+  const [interviewElapsedTime, setInterviewElapsedTime] = useState(0)
+  const [interviewFeedback, setInterviewFeedback] = useState(null)
+  const [interviewer, setInterviewer] = useState("Technical Interviewer")
+  const [interviewMessages, setInterviewMessages] = useState([])
+  const [userMessage, setUserMessage] = useState("")
 
   // Flatten all questions for filtering
   const allQuestions = Object.values(dsaQuestionsByCategory).flat()
@@ -385,6 +401,139 @@ export default function DSAPractice() {
       setIsDebugging(false)
     }, 2000)
   }
+
+  // Handle starting a mock interview
+  const startMockInterview = () => {
+    // Reset interview state
+    setInterviewInProgress(true)
+    setInterviewStartTime(Date.now())
+    setInterviewElapsedTime(0)
+    setInterviewFeedback(null)
+    setInterviewSolution("")
+    setInterviewMessages([
+      {
+        role: "interviewer",
+        content: `Hello! I'm your ${interviewSettings.company} technical interviewer today. Let's start with a ${interviewSettings.difficulty.toLowerCase()} difficulty problem on ${interviewSettings.topic.toLowerCase()}.`
+      }
+    ])
+    
+    // Select a question based on settings
+    const topicKey = Object.keys(dsaQuestionsByCategory).find(
+      key => key.toLowerCase().includes(interviewSettings.topic.toLowerCase())
+    ) || Object.keys(dsaQuestionsByCategory)[0];
+    
+    const questions = dsaQuestionsByCategory[topicKey];
+    const filteredQuestions = questions.filter(q => 
+      q.difficulty === interviewSettings.difficulty && !q.completed
+    );
+    
+    // If no matching questions, pick any from the topic
+    const question = filteredQuestions.length > 0 
+      ? filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)]
+      : questions[Math.floor(Math.random() * questions.length)];
+    
+    setInterviewQuestion(question);
+    
+    // Add question details as a message
+    setTimeout(() => {
+      setInterviewMessages(prev => [
+        ...prev,
+        {
+          role: "interviewer",
+          content: `Here's your problem: **${question.title}**\n\n${question.description}\n\nPlease think through your approach before coding. Feel free to ask me any clarifying questions.`
+        }
+      ]);
+    }, 1000);
+    
+    // Start timer for elapsed time
+    const timerInterval = setInterval(() => {
+      setInterviewElapsedTime(prev => prev + 1);
+    }, 1000);
+    
+    // Store interval ID in a ref so we can clean it up later
+    window.interviewTimerInterval = timerInterval;
+  };
+  
+  // Handle ending an interview
+  const endMockInterview = () => {
+    // Clear timer
+    if (window.interviewTimerInterval) {
+      clearInterval(window.interviewTimerInterval);
+    }
+    
+    setInterviewInProgress(false);
+    
+    // Generate feedback
+    const timeTaken = Math.floor((Date.now() - interviewStartTime) / 1000);
+    const minutes = Math.floor(timeTaken / 60);
+    const seconds = timeTaken % 60;
+    
+    setTimeout(() => {
+      setInterviewFeedback({
+        communicationScore: 8,
+        problemSolvingScore: 7,
+        codeQualityScore: 8,
+        overallScore: 7.5,
+        timeSpent: `${minutes}m ${seconds}s`,
+        strengths: [
+          "Good initial clarification of the problem",
+          "Clear explanation of your approach",
+          "Identified edge cases proactively"
+        ],
+        improvements: [
+          "Consider optimizing the time complexity further",
+          "Make sure to test with more diverse test cases",
+          "Could improve variable naming for better readability"
+        ],
+        suggestions: "Practice more problems related to dynamic programming and optimization techniques. Also, try to verbalize your thought process more consistently throughout the interview."
+      });
+    }, 1500);
+  };
+  
+  // Handle sending a message in the interview
+  const sendInterviewMessage = () => {
+    if (!userMessage.trim()) return;
+    
+    // Add user message
+    setInterviewMessages(prev => [
+      ...prev,
+      {
+        role: "user",
+        content: userMessage
+      }
+    ]);
+    
+    // Clear input
+    setUserMessage("");
+    
+    // Simulate interviewer response
+    setTimeout(() => {
+      let response = "That's a good point. Could you elaborate on your approach?";
+      
+      if (userMessage.toLowerCase().includes("time complexity") || userMessage.toLowerCase().includes("big o")) {
+        response = "Yes, let's analyze the time complexity. For this problem, we should aim for better than O(n²) if possible.";
+      } else if (userMessage.toLowerCase().includes("edge case") || userMessage.toLowerCase().includes("corner case")) {
+        response = "Good thinking! Edge cases are important. Make sure to consider empty arrays and special input values.";
+      } else if (userMessage.toLowerCase().includes("clarify") || userMessage.toLowerCase().includes("question")) {
+        response = "To clarify: you can assume all inputs are valid according to the problem description. No additional constraints.";
+      }
+      
+      setInterviewMessages(prev => [
+        ...prev,
+        {
+          role: "interviewer",
+          content: response
+        }
+      ]);
+    }, 1000);
+  };
+
+  // Format time for display (mm:ss)
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 animate-fade-in">
@@ -621,6 +770,7 @@ export default function DSAPractice() {
               <TabsTrigger value="daily">Daily Challenges</TabsTrigger>
               <TabsTrigger value="completed">Completed</TabsTrigger>
               <TabsTrigger value="bookmarked">Bookmarked</TabsTrigger>
+              <TabsTrigger value="mock-interview">Mock Interview</TabsTrigger>
             </TabsList>
 
             <TabsContent value="all" className="mt-6">
@@ -894,6 +1044,377 @@ export default function DSAPractice() {
                 </p>
                 <Button variant="outline">Browse All Questions</Button>
               </div>
+            </TabsContent>
+
+            {/* New Mock Interview Tab */}
+            <TabsContent value="mock-interview" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Technical Interview Simulator</CardTitle>
+                  <CardDescription>
+                    Practice your DSA skills in a realistic interview environment with an AI interviewer
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {!interviewInProgress && !interviewFeedback ? (
+                    <div className="space-y-6">
+                      <div className="text-center py-6">
+                        <h3 className="text-xl font-medium mb-4">Configure Your Mock Interview</h3>
+                        <p className="text-muted-foreground mb-6">
+                          Set up your interview parameters to match your target company and preferences
+                        </p>
+                      </div>
+                      
+                      <div className="grid gap-6 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="company-select">Target Company</Label>
+                          <Select 
+                            value={interviewSettings.company} 
+                            onValueChange={(value) => setInterviewSettings(prev => ({...prev, company: value}))}
+                          >
+                            <SelectTrigger id="company-select">
+                              <SelectValue placeholder="Select company" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Google">Google</SelectItem>
+                              <SelectItem value="Amazon">Amazon</SelectItem>
+                              <SelectItem value="Microsoft">Microsoft</SelectItem>
+                              <SelectItem value="Facebook">Facebook</SelectItem>
+                              <SelectItem value="Apple">Apple</SelectItem>
+                              <SelectItem value="Netflix">Netflix</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="difficulty-select">Difficulty Level</Label>
+                          <Select 
+                            value={interviewSettings.difficulty}
+                            onValueChange={(value) => setInterviewSettings(prev => ({...prev, difficulty: value}))}
+                          >
+                            <SelectTrigger id="difficulty-select">
+                              <SelectValue placeholder="Select difficulty" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Easy">Easy</SelectItem>
+                              <SelectItem value="Medium">Medium</SelectItem>
+                              <SelectItem value="Hard">Hard</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="topic-select">Topic Focus</Label>
+                          <Select 
+                            value={interviewSettings.topic}
+                            onValueChange={(value) => setInterviewSettings(prev => ({...prev, topic: value}))}
+                          >
+                            <SelectTrigger id="topic-select">
+                              <SelectValue placeholder="Select topic" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.keys(dsaQuestionsByCategory).map(category => (
+                                <SelectItem key={category} value={category}>
+                                  {category}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-secondary/20 rounded-lg p-6 mt-4">
+                        <h4 className="font-medium mb-2 flex items-center">
+                          <MessageSquare className="h-5 w-5 mr-2 text-primary" />
+                          Interview Tips
+                        </h4>
+                        <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+                          <li>Speak your thoughts out loud as you solve the problem</li>
+                          <li>Ask clarifying questions before diving into the solution</li>
+                          <li>Start with a brute force approach and then optimize</li>
+                          <li>Discuss time and space complexity of your solution</li>
+                          <li>Test your code with example inputs and edge cases</li>
+                        </ul>
+                      </div>
+                      
+                      <div className="flex justify-center pt-4">
+                        <Button 
+                          size="lg" 
+                          className="flex items-center gap-2" 
+                          onClick={startMockInterview}
+                        >
+                          <Play className="h-4 w-4" />
+                          Start Interview
+                        </Button>
+                      </div>
+                    </div>
+                  ) : interviewInProgress ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center border-b pb-3">
+                        <div className="flex items-center">
+                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                            {interviewSettings.company[0]}
+                          </div>
+                          <div className="ml-2">
+                            <p className="font-medium text-sm">{interviewer}</p>
+                            <p className="text-xs text-muted-foreground">{interviewSettings.company}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center text-sm">
+                            <Clock className="h-4 w-4 mr-1 text-muted-foreground" />
+                            <span>{formatTime(interviewElapsedTime)}</span>
+                          </div>
+                          
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex items-center gap-1"
+                            onClick={endMockInterview}
+                          >
+                            <PauseCircle className="h-4 w-4" />
+                            End Interview
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Chat and code editor area */}
+                      <div className="grid md:grid-cols-2 gap-4 h-[500px]">
+                        {/* Chat with interviewer */}
+                        <div className="border rounded-md flex flex-col">
+                          <div className="p-3 border-b">
+                            <h3 className="font-medium">Interview Discussion</h3>
+                          </div>
+                          
+                          <div className="flex-1 overflow-auto p-3 space-y-4">
+                            {interviewMessages.map((message, index) => (
+                              <div 
+                                key={index} 
+                                className={`flex ${message.role === 'interviewer' ? 'justify-start' : 'justify-end'}`}
+                              >
+                                <div 
+                                  className={`max-w-[80%] rounded-lg p-3 ${
+                                    message.role === 'interviewer' 
+                                      ? 'bg-secondary/30 text-foreground' 
+                                      : 'bg-primary text-primary-foreground'
+                                  }`}
+                                >
+                                  <div className="prose prose-sm dark:prose-invert" 
+                                    dangerouslySetInnerHTML={{ 
+                                      __html: message.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>') 
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <div className="p-3 border-t flex gap-2">
+                            <Input 
+                              placeholder="Ask a question or respond to the interviewer..." 
+                              value={userMessage}
+                              onChange={(e) => setUserMessage(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && sendInterviewMessage()}
+                            />
+                            <Button onClick={sendInterviewMessage}>Send</Button>
+                          </div>
+                        </div>
+                        
+                        {/* Code editor */}
+                        <div className="border rounded-md flex flex-col">
+                          <div className="p-3 border-b">
+                            <h3 className="font-medium">Your Solution</h3>
+                          </div>
+                          
+                          <div className="flex-1 p-0">
+                            <Textarea 
+                              className="h-full resize-none font-mono text-sm p-4 border-0"
+                              placeholder="Write your code solution here..."
+                              value={interviewSolution}
+                              onChange={(e) => setInterviewSolution(e.target.value)}
+                            />
+                          </div>
+                          
+                          <div className="p-3 border-t flex justify-between">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                // Implement run code feature if needed
+                                alert("Code execution feature coming soon!");
+                              }}
+                            >
+                              Run Code
+                            </Button>
+                            
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                setInterviewMessages(prev => [
+                                  ...prev,
+                                  {
+                                    role: "user",
+                                    content: "Here's my solution:\n```\n" + interviewSolution + "\n```"
+                                  }
+                                ]);
+                                
+                                setTimeout(() => {
+                                  setInterviewMessages(prev => [
+                                    ...prev,
+                                    {
+                                      role: "interviewer",
+                                      content: "Thanks for sharing your solution. Let's analyze it. Could you walk me through the time and space complexity?"
+                                    }
+                                  ]);
+                                }, 1000);
+                              }}
+                            >
+                              <Share2 className="h-4 w-4 mr-1" />
+                              Share with Interviewer
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // Feedback after interview
+                    <div className="space-y-6">
+                      <div className="text-center">
+                        <h3 className="text-xl font-medium mb-2">Interview Completed</h3>
+                        <p className="text-muted-foreground">
+                          Here's your performance feedback from the {interviewSettings.company} interviewer
+                        </p>
+                      </div>
+                      
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <div>
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-lg">Performance Metrics</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-4">
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-sm">Communication</span>
+                                    <span className="text-sm font-medium">{interviewFeedback.communicationScore}/10</span>
+                                  </div>
+                                  <Progress value={interviewFeedback.communicationScore * 10} />
+                                </div>
+                                
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-sm">Problem Solving</span>
+                                    <span className="text-sm font-medium">{interviewFeedback.problemSolvingScore}/10</span>
+                                  </div>
+                                  <Progress value={interviewFeedback.problemSolvingScore * 10} />
+                                </div>
+                                
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-sm">Code Quality</span>
+                                    <span className="text-sm font-medium">{interviewFeedback.codeQualityScore}/10</span>
+                                  </div>
+                                  <Progress value={interviewFeedback.codeQualityScore * 10} />
+                                </div>
+                                
+                                <div className="pt-2 border-t">
+                                  <div className="flex justify-between mb-1">
+                                    <span className="font-medium">Overall Score</span>
+                                    <span className="font-medium">{interviewFeedback.overallScore}/10</span>
+                                  </div>
+                                  <Progress value={interviewFeedback.overallScore * 10} className="h-2.5" />
+                                </div>
+                                
+                                <div className="text-center mt-4">
+                                  <p className="text-muted-foreground text-sm">Time Spent: {interviewFeedback.timeSpent}</p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-lg">Strengths</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <ul className="space-y-1">
+                                {interviewFeedback.strengths.map((strength, i) => (
+                                  <li key={i} className="flex items-start">
+                                    <CheckCircle className="h-4 w-4 text-green-500 mr-2 mt-0.5" />
+                                    <span>{strength}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </CardContent>
+                          </Card>
+                          
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-lg">Areas for Improvement</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <ul className="space-y-1">
+                                {interviewFeedback.improvements.map((improvement, i) => (
+                                  <li key={i} className="flex items-start">
+                                    <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 mt-0.5" />
+                                    <span>{improvement}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+                      
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">Interviewer Suggestions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p>{interviewFeedback.suggestions}</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <div className="flex justify-center gap-4 pt-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setInterviewFeedback(null);
+                            setInterviewQuestion(null);
+                            setInterviewSolution("");
+                            setInterviewMessages([]);
+                          }}
+                        >
+                          New Interview
+                        </Button>
+                        
+                        <Button
+                          onClick={() => {
+                            // Mark the question as completed
+                            if (interviewQuestion) {
+                              // In a real app, update the completed status in the database
+                              alert(`Question "${interviewQuestion.title}" marked as completed!`);
+                            }
+                            
+                            // Reset interview state
+                            setInterviewFeedback(null);
+                            setInterviewQuestion(null);
+                            setInterviewSolution("");
+                            setInterviewMessages([]);
+                          }}
+                        >
+                          Mark Question Completed
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>
