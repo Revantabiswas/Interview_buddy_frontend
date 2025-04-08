@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -25,89 +25,76 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-// Mock data for uploaded documents
-const mockDocuments = [
-  {
-    id: 1,
-    name: "Data Structures Notes.pdf",
-    type: "pdf",
-    size: "2.4 MB",
-    uploadDate: "2023-10-15",
-    status: "processed",
-    pages: 24,
-  },
-  {
-    id: 2,
-    name: "Algorithm Cheat Sheet.docx",
-    type: "docx",
-    size: "1.1 MB",
-    uploadDate: "2023-10-12",
-    status: "processed",
-    pages: 8,
-  },
-  {
-    id: 3,
-    name: "System Design Interview.txt",
-    type: "txt",
-    size: "0.3 MB",
-    uploadDate: "2023-10-10",
-    status: "processing",
-    pages: 5,
-  },
-]
+import { useDocumentService } from "@/hooks/useDocumentService"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function DocumentUpload() {
-  const [documents, setDocuments] = useState(mockDocuments)
-  const [isUploading, setIsUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedFile, setSelectedFile] = useState(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [documentToDelete, setDocumentToDelete] = useState(null)
+  const [uploadSuccess, setUploadSuccess] = useState(false)
+  const { toast } = useToast()
+  
+  const {
+    documents,
+    loading: isLoading,
+    error,
+    uploadProgress,
+    uploadDocument,
+    fetchDocuments,
+    deleteDocument
+  } = useDocumentService()
+
+  // Fetch documents on component mount
+  useEffect(() => {
+    console.log("Fetching documents...");
+    fetchDocuments()
+      .then(data => {
+        console.log("Documents fetched successfully:", data);
+      })
+      .catch(err => {
+        console.error("Failed to fetch documents:", err);
+        toast({
+          title: "Error",
+          description: "Failed to load documents",
+          variant: "destructive"
+        });
+      });
+  }, [])
+
+  // Show toast when error occurs
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: "Error",
+        description: error,
+        variant: "destructive"
+      })
+    }
+  }, [error])
 
   const handleFileChange = (e) => {
     if (e.target.files.length > 0) {
       setSelectedFile(e.target.files[0])
+      setUploadSuccess(false)
     }
   }
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!selectedFile) return
-
-    setIsUploading(true)
-    setUploadProgress(0)
-
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsUploading(false)
-
-          // Add the new document to the list
-          const newDoc = {
-            id: documents.length + 1,
-            name: selectedFile.name,
-            type: selectedFile.name.split(".").pop().toLowerCase(),
-            size: `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`,
-            uploadDate: new Date().toISOString().split("T")[0],
-            status: "processing",
-            pages: Math.floor(Math.random() * 20) + 1,
-          }
-
-          setDocuments([newDoc, ...documents])
-          setSelectedFile(null)
-
-          // Simulate processing completion after 2 seconds
-          setTimeout(() => {
-            setDocuments((prev) => prev.map((doc) => (doc.id === newDoc.id ? { ...doc, status: "processed" } : doc)))
-          }, 2000)
-
-          return 100
-        }
-        return prev + 5
+    
+    try {
+      await uploadDocument(selectedFile)
+      setSelectedFile(null)
+      setUploadSuccess(true)
+      toast({
+        title: "Success",
+        description: "Document uploaded successfully",
       })
-    }, 100)
+    } catch (err) {
+      console.error("Upload failed:", err)
+      // Error will be handled by the useEffect above
+    }
   }
 
   const handleDeleteClick = (doc) => {
@@ -115,15 +102,30 @@ export default function DocumentUpload() {
     setDeleteDialogOpen(true)
   }
 
-  const confirmDelete = () => {
-    if (documentToDelete) {
-      setDocuments(documents.filter((doc) => doc.id !== documentToDelete.id))
+  const confirmDelete = async () => {
+    if (!documentToDelete) return
+    
+    try {
+      await deleteDocument(documentToDelete.id)
       setDeleteDialogOpen(false)
       setDocumentToDelete(null)
+      toast({
+        title: "Success",
+        description: "Document deleted successfully",
+      })
+    } catch (err) {
+      console.error("Delete failed:", err)
+      // Error will be handled by the useEffect above
     }
   }
 
   const getFileIcon = (type) => {
+    // Get file type from filename if type is not directly provided
+    if (!type && typeof documentToDelete?.filename === 'string') {
+      const extension = documentToDelete.filename.split('.').pop().toLowerCase();
+      type = extension;
+    }
+    
     switch (type) {
       case "pdf":
         return <FilePdf className="h-10 w-10 text-red-500" />
@@ -134,6 +136,22 @@ export default function DocumentUpload() {
       default:
         return <File className="h-10 w-10 text-gray-500" />
     }
+  }
+
+  // Determine document status (backend might not provide this)
+  const getDocumentStatus = (doc) => {
+    // If status is explicitly set, use it
+    if (doc.status) return doc.status;
+    
+    // Infer status based on other properties
+    // A document is considered processed when it has pages or text data
+    return (doc.pages && doc.pages > 0) ? "processed" : "processing";
+  }
+
+  const formatFileSize = (sizeInBytes) => {
+    if (!sizeInBytes) return "Unknown size"
+    const sizeInMB = sizeInBytes / (1024 * 1024)
+    return `${sizeInMB.toFixed(1)} MB`
   }
 
   return (
@@ -167,21 +185,29 @@ export default function DocumentUpload() {
                 className="hidden"
                 accept=".pdf,.docx,.txt"
                 onChange={handleFileChange}
+                disabled={isLoading}
               />
-              {selectedFile && !isUploading && (
-                <Button onClick={handleUpload} className="w-full">
+              {selectedFile && !isLoading && (
+                <Button onClick={handleUpload} className="w-full" disabled={isLoading}>
                   Upload File
                 </Button>
               )}
             </div>
 
-            {isUploading && (
+            {isLoading && uploadProgress > 0 && (
               <div className="mt-4">
                 <div className="flex justify-between text-sm mb-1">
                   <span>Uploading...</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <Progress value={uploadProgress} className="progress-animation" />
+              </div>
+            )}
+            
+            {uploadSuccess && (
+              <div className="mt-4 p-2 bg-green-50 text-green-700 rounded-md flex items-center">
+                <CheckCircle className="h-4 w-4 mr-2" />
+                <span>Document uploaded successfully!</span>
               </div>
             )}
           </CardContent>
@@ -206,21 +232,30 @@ export default function DocumentUpload() {
 
             <TabsContent value="all">
               <div className="space-y-4">
-                {documents.length > 0 ? (
+                {isLoading && documents.length === 0 ? (
+                  <div className="text-center py-12 border rounded-lg">
+                    <Clock className="h-10 w-10 mx-auto mb-4 text-muted-foreground animate-spin" />
+                    <h3 className="text-lg font-medium">Loading documents...</h3>
+                  </div>
+                ) : documents.length > 0 ? (
                   documents.map((doc) => (
                     <Card key={doc.id} className="flex flex-col md:flex-row md:items-center p-4 gap-4">
-                      <div className="flex-shrink-0">{getFileIcon(doc.type)}</div>
+                      <div className="flex-shrink-0">
+                        {getFileIcon(doc.type || (doc.filename?.split('.').pop().toLowerCase()))}
+                      </div>
                       <div className="flex-grow">
-                        <h3 className="font-medium">{doc.name}</h3>
+                        <h3 className="font-medium">{doc.name || doc.filename}</h3>
                         <div className="flex flex-wrap gap-2 mt-1">
-                          <span className="text-sm text-muted-foreground">{doc.size}</span>
+                          <span className="text-sm text-muted-foreground">{formatFileSize(doc.size)}</span>
                           <span className="text-sm text-muted-foreground">•</span>
-                          <span className="text-sm text-muted-foreground">{doc.pages} pages</span>
+                          <span className="text-sm text-muted-foreground">{doc.pages || "?"} pages</span>
                           <span className="text-sm text-muted-foreground">•</span>
-                          <span className="text-sm text-muted-foreground">Uploaded on {doc.uploadDate}</span>
+                          <span className="text-sm text-muted-foreground">
+                            Uploaded on {new Date(doc.upload_time || doc.upload_date || doc.uploadDate).toLocaleDateString()}
+                          </span>
                         </div>
                         <div className="mt-2">
-                          {doc.status === "processed" ? (
+                          {getDocumentStatus(doc) === "processed" ? (
                             <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
                               <CheckCircle className="h-3 w-3 mr-1" /> Processed
                             </Badge>
@@ -232,7 +267,7 @@ export default function DocumentUpload() {
                         </div>
                       </div>
                       <div className="flex gap-2 mt-4 md:mt-0">
-                        <Button variant="outline" size="icon" disabled={doc.status !== "processed"}>
+                        <Button variant="outline" size="icon" disabled={getDocumentStatus(doc) !== "processed"}>
                           <Download className="h-4 w-4" />
                         </Button>
                         <Button
@@ -240,6 +275,7 @@ export default function DocumentUpload() {
                           size="icon"
                           className="text-destructive hover:text-destructive"
                           onClick={() => handleDeleteClick(doc)}
+                          disabled={isLoading}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -258,20 +294,22 @@ export default function DocumentUpload() {
 
             <TabsContent value="processed">
               <div className="space-y-4">
-                {documents.filter((doc) => doc.status === "processed").length > 0 ? (
+                {documents.filter((doc) => getDocumentStatus(doc) === "processed").length > 0 ? (
                   documents
-                    .filter((doc) => doc.status === "processed")
+                    .filter((doc) => getDocumentStatus(doc) === "processed")
                     .map((doc) => (
                       <Card key={doc.id} className="flex flex-col md:flex-row md:items-center p-4 gap-4">
                         <div className="flex-shrink-0">{getFileIcon(doc.type)}</div>
                         <div className="flex-grow">
-                          <h3 className="font-medium">{doc.name}</h3>
+                          <h3 className="font-medium">{doc.name || doc.filename}</h3>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            <span className="text-sm text-muted-foreground">{doc.size}</span>
+                            <span className="text-sm text-muted-foreground">{formatFileSize(doc.size)}</span>
                             <span className="text-sm text-muted-foreground">•</span>
-                            <span className="text-sm text-muted-foreground">{doc.pages} pages</span>
+                            <span className="text-sm text-muted-foreground">{doc.pages || "?"} pages</span>
                             <span className="text-sm text-muted-foreground">•</span>
-                            <span className="text-sm text-muted-foreground">Uploaded on {doc.uploadDate}</span>
+                            <span className="text-sm text-muted-foreground">
+                              Uploaded on {new Date(doc.upload_time || doc.upload_date || doc.uploadDate).toLocaleDateString()}
+                            </span>
                           </div>
                           <div className="mt-2">
                             <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
@@ -306,20 +344,22 @@ export default function DocumentUpload() {
 
             <TabsContent value="processing">
               <div className="space-y-4">
-                {documents.filter((doc) => doc.status === "processing").length > 0 ? (
+                {documents.filter((doc) => getDocumentStatus(doc) === "processing").length > 0 ? (
                   documents
-                    .filter((doc) => doc.status === "processing")
+                    .filter((doc) => getDocumentStatus(doc) === "processing")
                     .map((doc) => (
                       <Card key={doc.id} className="flex flex-col md:flex-row md:items-center p-4 gap-4">
                         <div className="flex-shrink-0">{getFileIcon(doc.type)}</div>
                         <div className="flex-grow">
-                          <h3 className="font-medium">{doc.name}</h3>
+                          <h3 className="font-medium">{doc.name || doc.filename}</h3>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            <span className="text-sm text-muted-foreground">{doc.size}</span>
+                            <span className="text-sm text-muted-foreground">{formatFileSize(doc.size)}</span>
                             <span className="text-sm text-muted-foreground">•</span>
-                            <span className="text-sm text-muted-foreground">{doc.pages} pages</span>
+                            <span className="text-sm text-muted-foreground">{doc.pages || "?"} pages</span>
                             <span className="text-sm text-muted-foreground">•</span>
-                            <span className="text-sm text-muted-foreground">Uploaded on {doc.uploadDate}</span>
+                            <span className="text-sm text-muted-foreground">
+                              Uploaded on {new Date(doc.upload_time || doc.upload_date || doc.uploadDate).toLocaleDateString()}
+                            </span>
                           </div>
                           <div className="mt-2">
                             <Badge variant="outline" className="animate-pulse">
@@ -361,15 +401,15 @@ export default function DocumentUpload() {
           <DialogHeader>
             <DialogTitle>Delete Document</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{documentToDelete?.name}"? This action cannot be undone.
+              Are you sure you want to delete "{documentToDelete?.name || documentToDelete?.filename}"? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isLoading}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Delete
+            <Button variant="destructive" onClick={confirmDelete} disabled={isLoading}>
+              {isLoading ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -377,4 +417,3 @@ export default function DocumentUpload() {
     </div>
   )
 }
-

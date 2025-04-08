@@ -8,93 +8,109 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Send, Bot, User, Clock, FileText, Lightbulb, Trash2, Copy, ThumbsUp, ThumbsDown } from "lucide-react"
-
-// Mock chat history
-const initialMessages = [
-  {
-    id: 1,
-    role: "assistant",
-    content: "Hello! I'm your InterviewBuddy AI assistant. How can I help with your interview preparation today?",
-    timestamp: "10:30 AM",
-  },
-  {
-    id: 2,
-    role: "user",
-    content: "Can you explain time complexity in Big O notation?",
-    timestamp: "10:31 AM",
-  },
-  {
-    id: 3,
-    role: "assistant",
-    content:
-      "Big O notation is used to describe the performance or complexity of an algorithm. It specifically describes the worst-case scenario and can be used to describe the execution time required or the space used by an algorithm.\n\nHere are the common Big O notations:\n\n- O(1): Constant time complexity. The algorithm takes the same amount of time regardless of input size.\n- O(log n): Logarithmic time complexity. The algorithm's time increases logarithmically as input size grows.\n- O(n): Linear time complexity. The algorithm's time increases linearly with input size.\n- O(n log n): Linearithmic time complexity. Common in efficient sorting algorithms like merge sort.\n- O(n²): Quadratic time complexity. Often seen in algorithms with nested loops.\n- O(2^n): Exponential time complexity. The algorithm's time doubles with each addition to the input.\n\nWould you like me to provide examples of algorithms for each of these time complexities?",
-    timestamp: "10:32 AM",
-    sources: ["Data Structures Notes.pdf", "Algorithm Cheat Sheet.docx"],
-  },
-]
+import { useDocumentService } from "@/hooks/useDocumentService"
+import { useToast } from "@/components/ui/use-toast"
+import ReactMarkdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import chatService from '@/lib/ChatService'
 
 export default function AIChat() {
-  const [messages, setMessages] = useState(initialMessages)
+  const [messages, setMessages] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
   const [input, setInput] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
+  const [selectedDocument, setSelectedDocument] = useState(null)
   const messagesEndRef = useRef(null)
+  const { toast } = useToast()
+  const { documents, loading: isLoadingDocuments, fetchDocuments } = useDocumentService()
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
+  // Subscribe to chat service updates
   useEffect(() => {
-    scrollToBottom()
+    // Subscribe to messages updates
+    const unsubscribeMessages = chatService.onMessagesChange(setMessages)
+    
+    // Subscribe to loading state updates
+    const unsubscribeLoading = chatService.onLoadingChange(setIsLoading)
+    
+    // Subscribe to error updates
+    const unsubscribeError = chatService.onErrorChange(setError)
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribeMessages()
+      unsubscribeLoading()
+      unsubscribeError()
+    }
+  }, [])
+
+  // Show error toast when error occurs
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: "Error",
+        description: error,
+        variant: "destructive",
+      })
+    }
+  }, [error, toast])
+
+  // Fetch documents on component mount
+  useEffect(() => {
+    fetchDocuments()
+      .catch(error => {
+        console.error("Error fetching documents:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load documents",
+          variant: "destructive",
+        })
+      })
+  }, [fetchDocuments, toast])
+
+  // Scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleSendMessage = (e) => {
-    e.preventDefault()
-    if (!input.trim()) return
-
-    // Add user message
-    const userMessage = {
-      id: messages.length + 1,
-      role: "user",
-      content: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    }
-
-    setMessages([...messages, userMessage])
-    setInput("")
-    setIsTyping(true)
-
-    // Simulate AI response after a delay
-    setTimeout(() => {
-      const aiMessage = {
-        id: messages.length + 2,
-        role: "assistant",
-        content:
-          "I'm simulating an AI response to your question about: " +
-          input +
-          "\n\nThis is where the actual AI-generated content would appear based on your uploaded documents and the context of your conversation.",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        sources: ["Data Structures Notes.pdf"],
+  // Poll for document updates
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      if (documents.some(doc => doc.status === "processing")) {
+        fetchDocuments()
       }
-
-      setMessages((prev) => [...prev, aiMessage])
-      setIsTyping(false)
-    }, 1500)
-  }
+    }, 5000)
+    
+    return () => clearInterval(pollInterval)
+  }, [documents, fetchDocuments])
 
   const clearChat = () => {
-    setMessages([
-      {
-        id: 1,
-        role: "assistant",
-        content: "Hello! I'm your InterviewBuddy AI assistant. How can I help with your interview preparation today?",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      },
-    ])
+    chatService.clearChat()
+    setInput("")
+  }
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault()
+    if (!input.trim() || !selectedDocument) return
+    
+    try {
+      await chatService.sendMessage(selectedDocument.id, input)
+      setInput("")
+    } catch (err) {
+      console.error("Failed to send message:", err)
+    }
+  }
+
+  const handleSelectDocument = (document) => {
+    setSelectedDocument(document)
+    // Optionally clear chat when switching documents
+    clearChat()
   }
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
-    // You could add a toast notification here
+    toast({
+      description: "Copied to clipboard",
+    })
   }
 
   return (
@@ -116,63 +132,71 @@ export default function AIChat() {
 
             <TabsContent value="documents" className="flex-1 overflow-auto p-4">
               <h3 className="font-medium mb-3">Available Documents</h3>
-              <div className="space-y-2">
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <FileText className="h-4 w-4 mr-2 text-blue-500" />
-                  <span className="text-sm">Data Structures Notes.pdf</span>
+              {isLoadingDocuments ? (
+                <div className="text-center py-12">
+                  <Clock className="h-6 w-6 mx-auto mb-2 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Loading documents...</p>
                 </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <FileText className="h-4 w-4 mr-2 text-blue-500" />
-                  <span className="text-sm">Algorithm Cheat Sheet.docx</span>
+              ) : documents.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-sm text-muted-foreground">No documents available.</p>
+                  <p className="text-sm text-muted-foreground">Upload a document first to chat with it.</p>
                 </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <FileText className="h-4 w-4 mr-2 text-gray-500" />
-                  <span className="text-sm">System Design Interview.txt</span>
+              ) : (
+                <div className="space-y-2">
+                  {documents.map((doc) => (
+                    <div 
+                      key={doc.id}
+                      className={`flex items-center p-2 rounded-md cursor-pointer ${
+                        selectedDocument?.id === doc.id ? 'bg-secondary' : 'hover:bg-secondary/50'
+                      }`}
+                      onClick={() => handleSelectDocument(doc)}
+                    >
+                      <FileText className={`h-4 w-4 mr-2 ${
+                        doc.type === 'pdf' ? 'text-red-500' : 
+                        doc.type === 'docx' ? 'text-blue-500' : 
+                        'text-gray-500'
+                      }`} />
+                      <span className="text-sm truncate">{doc.filename}</span>
+                      <span className="ml-auto">
+                        {doc.status === "processed" ? (
+                          <Badge variant="outline" className="ml-2 bg-green-50 text-green-700">
+                            Ready
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="ml-2 animate-pulse">
+                            Processing
+                          </Badge>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
 
-              <h3 className="font-medium mt-6 mb-3">Suggested Questions</h3>
-              <div className="space-y-2">
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <Lightbulb className="h-4 w-4 mr-2 text-yellow-500" />
-                  <span className="text-sm">Explain merge sort vs quick sort</span>
-                </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <Lightbulb className="h-4 w-4 mr-2 text-yellow-500" />
-                  <span className="text-sm">What is dynamic programming?</span>
-                </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <Lightbulb className="h-4 w-4 mr-2 text-yellow-500" />
-                  <span className="text-sm">Explain hash table collisions</span>
-                </div>
+              <div className="mt-6">
+                <h3 className="font-medium mb-2">Chat Tips</h3>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-start">
+                    <Lightbulb className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
+                    <span>Ask specific questions about your document's content</span>
+                  </li>
+                  <li className="flex items-start">
+                    <Lightbulb className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
+                    <span>You can ask for summaries, explanations, or examples</span>
+                  </li>
+                  <li className="flex items-start">
+                    <Lightbulb className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
+                    <span>The more specific your question, the better the answer</span>
+                  </li>
+                </ul>
               </div>
             </TabsContent>
 
             <TabsContent value="history" className="flex-1 overflow-auto p-4">
-              <h3 className="font-medium mb-3">Recent Conversations</h3>
-              <div className="space-y-2">
-                <div className="flex items-center p-2 rounded-md bg-secondary cursor-pointer">
-                  <Clock className="h-4 w-4 mr-2" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">DSA Concepts</p>
-                    <p className="text-xs text-muted-foreground">Today, 10:30 AM</p>
-                  </div>
-                </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <Clock className="h-4 w-4 mr-2" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">System Design Basics</p>
-                    <p className="text-xs text-muted-foreground">Yesterday, 3:45 PM</p>
-                  </div>
-                </div>
-                <div className="flex items-center p-2 rounded-md hover:bg-secondary cursor-pointer">
-                  <Clock className="h-4 w-4 mr-2" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">JavaScript Interview Prep</p>
-                    <p className="text-xs text-muted-foreground">Oct 10, 2023</p>
-                  </div>
-                </div>
-              </div>
+              <h3 className="font-medium mb-3">Chat History</h3>
+              <p className="text-sm text-muted-foreground">Your chat history will appear here.</p>
+              {/* Chat history would go here */}
             </TabsContent>
           </Tabs>
         </Card>
@@ -191,7 +215,11 @@ export default function AIChat() {
                 </Avatar>
                 <div>
                   <h3 className="font-medium">InterviewBuddy AI</h3>
-                  <p className="text-xs text-muted-foreground">Powered by your study materials</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedDocument 
+                      ? `Chatting with: ${selectedDocument.filename}` 
+                      : "Please select a document to start chatting"}
+                  </p>
                 </div>
               </div>
               <Button variant="ghost" size="icon" onClick={clearChat}>
@@ -199,91 +227,99 @@ export default function AIChat() {
               </Button>
             </div>
 
-            {/* Messages Container */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((message) => (
-                <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`flex max-w-[80%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-                    <div className={`flex-shrink-0 ${message.role === "user" ? "ml-3" : "mr-3"}`}>
-                      <Avatar>
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-4">
+                {messages.map((message, index) => (
+                  <div
+                    key={message.id || index}
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`flex items-start space-x-2 max-w-[75%] ${
+                        message.role === "user" ? "flex-row-reverse space-x-reverse" : ""
+                      }`}
+                    >
+                      <Avatar className="h-8 w-8 mt-0.5">
                         <AvatarFallback>
-                          {message.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                          {message.role === "user" ? (
+                            <User className="h-4 w-4" />
+                          ) : (
+                            <Bot className="h-4 w-4" />
+                          )}
                         </AvatarFallback>
                       </Avatar>
-                    </div>
-                    <div>
-                      <div
-                        className={`rounded-lg p-3 ${
-                          message.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
-                        }`}
-                      >
-                        <div className="whitespace-pre-wrap">{message.content}</div>
-
-                        {message.sources && (
-                          <div className="mt-2 pt-2 border-t border-border/30 flex flex-wrap gap-2">
-                            <span className="text-xs text-muted-foreground">Sources:</span>
-                            {message.sources.map((source, i) => (
-                              <Badge key={i} variant="outline" className="text-xs">
-                                <FileText className="h-3 w-3 mr-1" />
-                                {source}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center mt-1 text-xs text-muted-foreground">
-                        <span>{message.timestamp}</span>
-
-                        {message.role === "assistant" && (
-                          <div className="flex items-center ml-auto space-x-2">
-                            <Button variant="ghost" size="icon" className="h-6 w-6">
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6">
-                              <ThumbsUp className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6">
-                              <ThumbsDown className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {isTyping && (
-                <div className="flex justify-start">
-                  <div className="flex max-w-[80%]">
-                    <div className="flex-shrink-0 mr-3">
-                      <Avatar>
-                        <AvatarFallback>
-                          <Bot className="h-4 w-4" />
-                        </AvatarFallback>
-                      </Avatar>
-                    </div>
-                    <div>
-                      <div className="rounded-lg p-3 bg-secondary">
-                        <div className="flex space-x-2">
-                          <div className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"></div>
-                          <div
-                            className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
-                            style={{ animationDelay: "0.2s" }}
-                          ></div>
-                          <div
-                            className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
-                            style={{ animationDelay: "0.4s" }}
-                          ></div>
+                      <div>
+                        <div
+                          className={`rounded-lg p-3 ${
+                            message.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted"
+                          }`}
+                        >
+                          {message.htmlContent ? (
+                            <div dangerouslySetInnerHTML={{ __html: message.htmlContent }} />
+                          ) : (
+                            <ReactMarkdown rehypePlugins={[rehypeRaw]}>{message.content}</ReactMarkdown>
+                          )}
+                          
+                          {message.sources && (
+                            <div className="mt-2 pt-2 border-t border-t-muted-foreground/20 text-xs text-muted-foreground/60">
+                              Source: {message.sources.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                        <div
+                          className={`flex items-center mt-1 text-xs text-muted-foreground ${
+                            message.role === "user" ? "justify-end" : ""
+                          }`}
+                        >
+                          <span>{message.timestamp}</span>
+                          {message.role === "assistant" && (
+                            <div className="flex space-x-1 ml-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => copyToClipboard(message.content)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <ThumbsUp className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <ThumbsDown className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                ))}
 
-              <div ref={messagesEndRef} />
+                {isLoading && (
+                  <div className="flex justify-start">
+                    <div className="flex items-start space-x-2 max-w-[75%]">
+                      <Avatar className="h-8 w-8 mt-0.5">
+                        <AvatarFallback>
+                          <Bot className="h-4 w-4" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="bg-muted rounded-lg p-3">
+                        <div className="flex space-x-1">
+                          <span className="animate-bounce">●</span>
+                          <span className="animate-bounce animation-delay-200">●</span>
+                          <span className="animate-bounce animation-delay-400">●</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* Input Area */}
@@ -292,10 +328,17 @@ export default function AIChat() {
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask a question about your study materials..."
+                  placeholder={selectedDocument 
+                    ? "Ask a question about this document..." 
+                    : "Select a document to start chatting"}
                   className="flex-1"
+                  disabled={!selectedDocument || isLoading}
                 />
-                <Button type="submit" size="icon">
+                <Button 
+                  type="submit" 
+                  size="icon"
+                  disabled={!selectedDocument || !input.trim() || isLoading}
+                >
                   <Send className="h-4 w-4" />
                 </Button>
               </form>
